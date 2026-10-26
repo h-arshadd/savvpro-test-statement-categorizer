@@ -1,5 +1,5 @@
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -71,22 +71,29 @@ def categorize(
 
 
 def categorize_all(
-    transactions: Sequence[RawTransaction], overrides: Mapping[str, str] | None = None
+    transactions: Sequence[RawTransaction],
+    overrides: Mapping[str, str] | None = None,
+    keep_rows: Collection[int] = (),
 ) -> list[CategorizedTransaction]:
-    """Categorize every row, then flag repeats of the same date, merchant and amount."""
+    """Categorize every row, then flag repeats of the same date, merchant and amount.
+
+    `keep_rows` are rows the user confirmed are real charges: they are not flagged.
+    """
     results = [categorize(t, overrides) for t in transactions]
+    keep = set(keep_rows)
 
     seen: dict[tuple, CategorizedTransaction] = {}
     for i, r in enumerate(results):
         if r.date is None or r.status is Status.EXCLUDED:
             continue
         first = seen.setdefault((r.date, r.merchant, r.amount), r)
-        if first is r:
+        if first is r or r.row in keep:
             continue
         results[i] = r.model_copy(update={
             "status": Status.NEEDS_REVIEW,
             "category": None,
             "suggestion": first.category or first.suggestion,
+            "duplicate_of": first.row,
             "confidence": min(r.confidence, 0.5),
             "reason": f"Possible duplicate of row {first.row}. Keep it if it is a real second charge.",
         })

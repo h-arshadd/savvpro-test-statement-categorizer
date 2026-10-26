@@ -200,3 +200,17 @@ def test_sample_statement_end_to_end():
     assert summary.excluded_count == 2
     assert summary.needs_review_count == 7
     assert summary.needs_review_net == Decimal("158.55")
+
+def test_confirmed_duplicate_is_kept_as_a_normal_charge():
+    d = dt.date(2026, 9, 12)
+    rows = [
+        txn("GITHUB INC", "-4.00", row=1, date=d),
+        txn("GITHUB INC", "-4.00", row=2, date=d),
+    ]
+    flagged = categorize_all(rows)
+    assert flagged[1].duplicate_of == 1
+
+    kept = categorize_all(rows, keep_rows=[2])
+    assert kept[1].status is Status.CATEGORIZED
+    assert kept[1].category == SOFTWARE
+    assert kept[1].duplicate_of is None

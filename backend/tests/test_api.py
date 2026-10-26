@@ -119,3 +119,15 @@ def test_rule_with_unknown_category_is_rejected(client):
 def test_rule_without_a_merchant_is_rejected(client):
     resp = client.post("/api/rules", json={"description": "***", "category": "Meals"})
     assert resp.status_code == 422
+
+def test_confirming_a_duplicate_keeps_it_and_counts_it(client):
+    row12 = {t["row"]: t for t in upload(client).json()["transactions"]}[12]
+    assert row12["status"] == "needs_review"
+    assert row12["duplicate_of"] == 11
+
+    body = upload(client, keep_rows=[12]).json()
+    row12 = {t["row"]: t for t in body["transactions"]}[12]
+    assert row12["status"] == "categorized"
+    assert body["summary"]["needs_review_count"] == 6
+    software = next(c for c in body["summary"]["categories"] if c["category"] == "Software & Subscriptions")
+    assert D(software["total"]) == Decimal("83.98")  # Adobe 59.99 + Zoom 15.99 + GitHub 4 + 4

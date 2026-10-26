@@ -4,4 +4,3 @@ python-multipart
 rapidfuzz
 pytest
 httpx
-pdfplumber

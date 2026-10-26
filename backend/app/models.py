@@ -26,6 +26,7 @@ class CategorizedTransaction(BaseModel):
     amount: Decimal
     category: str | None  # None while the row needs review
     suggestion: str | None = None  # best guess for rows that need review
+    duplicate_of: int | None = None  # row number of the charge this one repeats
     status: Status
     confidence: float
     reason: str  # why the brain decided this, shown to the user

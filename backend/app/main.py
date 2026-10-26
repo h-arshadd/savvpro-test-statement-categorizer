@@ -1,6 +1,6 @@
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import config
@@ -46,8 +46,12 @@ async def upload_statement(
     file: Annotated[UploadFile, File()],
     sign: SignMode = "auto",
     day_first: bool = False,
+    keep_rows: Annotated[list[int] | None, Query()] = None,
 ) -> StatementResponse:
-    """Read a statement, categorize every row and return the rows plus totals."""
+    """Read a statement, categorize every row and return the rows plus totals.
+
+    keep_rows: rows the user confirmed are real charges (not duplicates).
+    """
     filename = file.filename or ""
     content = await file.read(MAX_BYTES + 1)  # never read more than the limit allows
     try:
@@ -55,7 +59,7 @@ async def upload_statement(
     except ParseError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    results = categorize_all(parsed.transactions, store.all())
+    results = categorize_all(parsed.transactions, store.all(), keep_rows or [])
     return StatementResponse(
         filename=filename or "statement",
         transactions=results,
