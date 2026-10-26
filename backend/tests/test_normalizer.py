@@ -15,6 +15,8 @@ from app.normalizer import normalize_merchant
         ("POS DEBIT STAPLES 00123", "STAPLES"),
         ("  joe's   diner  ", "JOES DINER"),
         ("7-ELEVEN 1234", "ELEVEN"),
+        ("GOOGLE*ADS1234567890", "GOOGLE ADS"),  # name stuck to a long number
+        ("ZOOM 3X9Q", "ZOOM"),  # mixed code is still dropped
     ],
 )
 def test_normalize_merchant(raw, expected):

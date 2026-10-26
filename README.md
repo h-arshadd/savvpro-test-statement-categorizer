@@ -11,8 +11,7 @@ The part that decides categories is plain Python rules in `backend/app/`. No AI 
 - Upload a `.csv` statement (up to 5 MB).
 - See every row with its category and whether it was categorized, excluded or needs review (filterable).
 - See totals per category, income, and how many rows are excluded or waiting for review.
-- Fix rows in **Needs Review**: accept the suggestion or pick a category. Your choice is saved as a rule for that merchant, so it applies to future uploads too.
-- See your saved rules in the **Saved rules** list under the upload form and remove any of them.
+- Fix rows in **Needs Review**: accept the suggestion or pick a category. You can also **change any row**, including ones the app was confident about, mark a charge as **Personal** (left out of the totals), or **Undo** a change. Changes apply to the file you are looking at and are not stored.
 - Confirm that a flagged possible duplicate is a real charge.
 - Download the result as a CSV (all rows, with status, category, suggestion and the reason for each decision).
 - Choose how to read the file if it guesses wrong: sign convention (which amounts are expenses) and day-first dates.
@@ -69,19 +68,21 @@ Upload `sample_data/freelancer_card.csv` (a fake statement). It has 17 rows: 8 a
 Run from the `backend/` folder with the virtual environment active:
 
 ```bash
+pip install -r requirements-dev.txt
 python -m pytest
 ```
 
+Frontend checks: `npm run lint` and `npm run build` (in `frontend/`). The same backend tests and frontend checks run in GitHub Actions (`.github/workflows/ci.yml`).
+
 ## Configuration
 
-Both settings are optional environment variables for the backend.
+One optional environment variable for the backend.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `RULES_FILE` | `backend/data/rules.json` | Where your saved merchant rules are stored. |
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated list of frontend origins allowed to call the API. |
 
-Uploaded statements are processed in memory and are never saved. Only your saved merchant rules are written to disk (`backend/data/` is git-ignored).
+Nothing is stored. Uploaded statements are processed in memory and your fixes live only in the browser page, so there is no database and no data folder.
 
 ## API
 
@@ -89,10 +90,7 @@ Uploaded statements are processed in memory and are never saved. Only your saved
 |---|---|
 | `GET /api/health` | Health check. |
 | `GET /api/categories` | List of category names. |
-| `POST /api/statements` | Upload a statement (multipart field `file`). Optional query: `sign` (`auto`, `negative_is_expense`, `positive_is_expense`), `day_first` (true/false), `keep_rows` (repeatable row number to confirm as a real charge). Returns the categorized rows, a summary and any warnings. |
-| `GET /api/rules` | Saved merchant rules. |
-| `POST /api/rules` | Save a rule: `{ "description": "JOES CAFE 9921", "category": "Meals" }`. |
-| `DELETE /api/rules/{merchant}` | Remove a saved rule (the merchant name as returned by `GET /api/rules`, URL-encoded). 404 if there is no such rule. |
+| `POST /api/statements` | Upload a statement (multipart field `file`). Optional form field `overrides`: JSON like `{"5": "Meals"}`, the categories the user chose for specific row numbers. Optional query: `sign` (`auto`, `negative_is_expense`, `positive_is_expense`), `day_first` (true/false), `keep_rows` (repeatable row number to confirm as a real charge). Returns the categorized rows, a summary and any warnings. |
 
 Money values in responses are strings (for example `"-59.99"`) to avoid floating point errors. Negative means money out, positive means money in.
 
@@ -100,7 +98,7 @@ Money values in responses are strings (for example `"-59.99"`) to avoid floating
 
 - Header row with a date, a description and either one amount column or separate debit/credit columns (many common header names are recognised). A few lines of text above the header are fine.
 - Comma, semicolon, tab or pipe separated.
-- Amounts like `-59.99`, `($1,234.50)`, `12.50-` and `1.200,50`.
+- Amounts like `-59.99`, `($1,234.50)`, `12.50-`, `59.99 CR` / `59.99 DR` and `1.200,50`. An amount with stray letters is skipped with a warning, never guessed.
 - Several date formats, including `2026-09-01`, `09/01/2026` and `01.09.2026`.
 - Summary rows such as "Total" or "Closing balance" are skipped. Rows that cannot be read are skipped with a warning shown in the app.
 
@@ -117,12 +115,13 @@ backend/
     normalizer.py    cleans messy merchant descriptions
     rules.py         the category rules and their confidence
     categorizer.py   the decision logic and totals
-    rules_store.py   saves the user's merchant rules to a JSON file
     models.py        data models
     schemas.py       API request and response models
     config.py        environment settings
   tests/             pytest tests
-  requirements.txt
+  requirements.txt       what the app needs (pinned)
+  requirements-dev.txt   adds the test tools
 frontend/            React + Vite app
+.github/workflows/   CI: tests, lint and build
 sample_data/         fake statement for trying the app
 ```

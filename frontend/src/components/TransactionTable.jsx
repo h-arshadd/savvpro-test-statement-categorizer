@@ -6,11 +6,60 @@ const FILTERS = [
   ['all', 'All'],
   ['needs_review', 'Needs review'],
   ['categorized', 'Categorized'],
-  ['excluded', 'Not spending'],
+  ['excluded', 'Not counted'],
 ]
 
-function Action({ row, categories, busy, onCategorize, onKeep }) {
-  if (row.status !== 'needs_review') return <span>{row.category}</span>
+function CategorySelect({ row, categories, busy, onSetCategory, label }) {
+  return (
+    <select
+      aria-label={`${label} for ${row.description}`}
+      value=""
+      disabled={busy}
+      onChange={(e) => e.target.value && onSetCategory(row, e.target.value)}
+    >
+      <option value="">{label}…</option>
+      {categories.map((c) => (
+        <option key={c} value={c}>
+          {c}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+// Every row can be changed: the rules are only a best effort and can be wrong.
+function Action({ row, categories, busy, onSetCategory, onUndo, onKeep }) {
+  const select = (label) => (
+    <CategorySelect
+      row={row}
+      categories={categories}
+      busy={busy}
+      onSetCategory={onSetCategory}
+      label={label}
+    />
+  )
+
+  if (row.user_set) {
+    return (
+      <div className="actions">
+        <span>{row.category}</span>
+        <span className="tag">set by you</span>
+        <button disabled={busy} onClick={() => onUndo(row)}>
+          Undo
+        </button>
+        {select('Change')}
+      </div>
+    )
+  }
+
+  if (row.status !== 'needs_review') {
+    return (
+      <div className="actions">
+        <span>{row.category}</span>
+        {select('Change')}
+      </div>
+    )
+  }
 
   if (row.duplicate_of) {
     return (
@@ -18,6 +67,7 @@ function Action({ row, categories, busy, onCategorize, onKeep }) {
         <button disabled={busy} onClick={() => onKeep(row)}>
           It&apos;s a real charge
         </button>
+        {select('Choose category')}
       </div>
     )
   }
@@ -25,28 +75,24 @@ function Action({ row, categories, busy, onCategorize, onKeep }) {
   return (
     <div className="actions">
       {row.suggestion && (
-        <button className="suggest" disabled={busy} onClick={() => onCategorize(row, row.suggestion)}>
+        <button className="suggest" disabled={busy} onClick={() => onSetCategory(row, row.suggestion)}>
           Use {row.suggestion}
         </button>
       )}
-      <select
-        aria-label={`Choose a category for ${row.description}`}
-        value=""
-        disabled={busy}
-        onChange={(e) => e.target.value && onCategorize(row, e.target.value)}
-      >
-        <option value="">Choose category…</option>
-        {categories.map((c) => (
-          <option key={c} value={c}>
-            {c}
-          </option>
-        ))}
-      </select>
+      {select('Choose category')}
     </div>
   )
 }
 
-export default function TransactionTable({ rows, filename, categories, busy, onCategorize, onKeep }) {
+export default function TransactionTable({
+  rows,
+  filename,
+  categories,
+  busy,
+  onSetCategory,
+  onUndo,
+  onKeep,
+}) {
   const [filter, setFilter] = useState('all')
   const countFor = (key) => (key === 'all' ? rows.length : rows.filter((r) => r.status === key).length)
   const visible = filter === 'all' ? rows : rows.filter((r) => r.status === filter)
@@ -102,7 +148,8 @@ export default function TransactionTable({ rows, filename, categories, busy, onC
                     row={row}
                     categories={categories}
                     busy={busy}
-                    onCategorize={onCategorize}
+                    onSetCategory={onSetCategory}
+                    onUndo={onUndo}
                     onKeep={onKeep}
                   />
                 </td>

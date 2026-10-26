@@ -27,6 +27,7 @@ class CategorizedTransaction(BaseModel):
     category: str | None  # None while the row needs review
     suggestion: str | None = None  # best guess for rows that need review
     duplicate_of: int | None = None  # row number of the charge this one repeats
+    user_set: bool = False  # the user chose this category themselves
     status: Status
     confidence: float
     reason: str  # why the brain decided this, shown to the user

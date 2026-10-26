@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 INCOME = "Income"
 NOT_SPENDING = "Transfers & Card Payments"
+PERSONAL = "Personal (not business)"
 
 SOFTWARE = "Software & Subscriptions"
 TRAVEL = "Travel"
@@ -10,9 +11,12 @@ OFFICE = "Office Supplies"
 ADVERTISING = "Advertising"
 TELECOM = "Phone & Internet"
 FEES = "Interest & Bank Fees"
+OTHER = "Other Business Expense"
 
-EXPENSE_CATEGORIES = (SOFTWARE, TRAVEL, MEALS, OFFICE, ADVERTISING, TELECOM, FEES)
-ALL_CATEGORIES = EXPENSE_CATEGORIES + (INCOME, NOT_SPENDING)
+EXPENSE_CATEGORIES = (SOFTWARE, TRAVEL, MEALS, OFFICE, ADVERTISING, TELECOM, FEES, OTHER)
+# Not business spending: shown in the table, left out of every total.
+EXCLUDED_CATEGORIES = (NOT_SPENDING, PERSONAL)
+ALL_CATEGORIES = EXPENSE_CATEGORIES + (INCOME,) + EXCLUDED_CATEGORIES
 
 # Below this confidence the brain asks instead of guessing.
 REVIEW_THRESHOLD = 0.8
@@ -34,7 +38,7 @@ RULES: tuple[Rule, ...] = (
     ), 0.95),
     Rule(TRAVEL, (
         "UBER TRIP", "LYFT", "DELTA AIR", "UNITED AIRLINES", "AMERICAN AIRLINES",
-        "SOUTHWEST AIRLINES", "MARRIOTT", "HILTON", "AIRBNB", "HERTZ", "AVIS", "AMTRAK",
+        "SOUTHWEST AIRLINES", "MARRIOTT", "HILTON", "AIRBNB", "HERTZ", "AVIS RENT A CAR", "AVIS CAR RENTAL", "AMTRAK",
     ), 0.95),
     Rule(OFFICE, ("STAPLES", "OFFICE DEPOT", "OFFICEMAX"), 0.95),
     Rule(ADVERTISING, ("GOOGLE ADS", "FACEBK ADS", "META ADS", "LINKEDIN ADS"), 0.95),
@@ -47,12 +51,12 @@ RULES: tuple[Rule, ...] = (
          "Meals are only deductible with a business purpose, so please confirm."),
     Rule(MEALS, ("UBER EATS", "DOORDASH", "GRUBHUB"), 0.6,
          "Food delivery could be personal or business."),
-    Rule(OFFICE, ("AMAZON",), 0.5,
+    Rule(OFFICE, ("AMAZON", "AMZN MKTP"), 0.5,
          "Amazon purchases could be business or personal."),
     # Not spending.
     Rule(NOT_SPENDING, (
         "TRANSFER TO SAVINGS", "TRANSFER FROM SAVINGS", "TRANSFER TO CHECKING",
-        "TRANSFER FROM CHECKING", "INTERNAL TRANSFER", "PAYMENT THANK YOU", "AUTOPAY",
+        "TRANSFER FROM CHECKING", "INTERNAL TRANSFER", "PAYMENT THANK YOU", "AUTOPAY PAYMENT",
         "AUTOMATIC PAYMENT",
     ), 0.95),
     Rule(NOT_SPENDING, ("TRANSFER TO", "TRANSFER FROM"), 0.6,
@@ -60,6 +64,6 @@ RULES: tuple[Rule, ...] = (
          "or just moving your own money."),
     # Only counts when money comes in.
     Rule(INCOME, (
-        "CLIENT PAYMENT", "INVOICE", "STRIPE PAYOUT", "STRIPE TRANSFER", "PAYONEER", "DIRECT DEPOSIT",
+        "CLIENT PAYMENT", "INVOICE PAYMENT", "STRIPE PAYOUT", "STRIPE TRANSFER", "PAYONEER", "DIRECT DEPOSIT",
     ), 0.9, money_in_only=True),
 )

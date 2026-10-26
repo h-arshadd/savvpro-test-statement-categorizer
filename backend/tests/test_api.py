@@ -1,12 +1,13 @@
 from decimal import Decimal
 from pathlib import Path
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app, get_store
+from app.main import app
 from app.parser import MAX_BYTES
-from app.rules_store import RulesStore
 
 SAMPLE = Path(__file__).resolve().parents[2] / "sample_data" / "freelancer_card.csv"
 
@@ -16,17 +17,15 @@ def D(value):
 
 
 @pytest.fixture
-def client(tmp_path):
-    store = RulesStore(tmp_path / "rules.json")
-    app.dependency_overrides[get_store] = lambda: store
-    yield TestClient(app)
-    app.dependency_overrides.clear()
+def client():
+    return TestClient(app)
 
 
-def upload(client, content=None, name="freelancer_card.csv", **params):
+def upload(client, content=None, name="freelancer_card.csv", overrides=None, **params):
     data = SAMPLE.read_bytes() if content is None else content
+    form = {"overrides": json.dumps(overrides)} if overrides is not None else {}
     return client.post(
-        "/api/statements", params=params, files={"file": (name, data, "text/csv")}
+        "/api/statements", params=params, data=form, files={"file": (name, data, "text/csv")}
     )
 
 
@@ -87,38 +86,75 @@ def test_invalid_sign_option_is_a_422(client):
     assert upload(client, sign="bogus").status_code == 422
 
 
-def test_saving_a_rule_changes_the_next_analysis(client):
-    first = {t["row"]: t for t in upload(client).json()["transactions"]}
-    assert first[5]["status"] == "needs_review"  # JOES CAFE 9921
+def rows_of(response):
+    return {t["row"]: t for t in response.json()["transactions"]}
 
-    saved = client.post(
-        "/api/rules", json={"description": "JOES CAFE 9921", "category": "Meals"}
-    )
-    assert saved.status_code == 200
-    assert saved.json() == {"merchant": "JOES CAFE", "category": "Meals"}
 
-    body = upload(client).json()
-    row5 = {t["row"]: t for t in body["transactions"]}[5]
+def test_categories_include_personal_and_other(client):
+    cats = client.get("/api/categories").json()
+    assert "Personal (not business)" in cats
+    assert "Other Business Expense" in cats
+
+
+def test_fixing_a_review_row_changes_the_totals(client):
+    assert rows_of(upload(client))[5]["status"] == "needs_review"  # JOES CAFE 9921
+
+    resp = upload(client, overrides={"5": "Meals"})
+    row5 = rows_of(resp)[5]
     assert row5["status"] == "categorized"
     assert row5["category"] == "Meals"
+    assert row5["user_set"] is True
+    body = resp.json()
     assert body["summary"]["needs_review_count"] == 6
     meals = next(c for c in body["summary"]["categories"] if c["category"] == "Meals")
     assert D(meals["total"]) == Decimal("14.25")
 
 
-def test_saved_rules_can_be_listed(client):
-    client.post("/api/rules", json={"description": "JOES CAFE 9921", "category": "Meals"})
-    assert client.get("/api/rules").json() == {"JOES CAFE": "Meals"}
+def test_a_fix_applies_to_that_row_only(client):
+    # Rows 5 and 10 are both cafes (JOES CAFE, BLUE BOTTLE COFFEE). Fixing one leaves the other.
+    rows = rows_of(upload(client, overrides={"5": "Meals"}))
+    assert rows[5]["status"] == "categorized"
+    assert rows[10]["status"] == "needs_review"
 
 
-def test_rule_with_unknown_category_is_rejected(client):
-    resp = client.post("/api/rules", json={"description": "JOES CAFE", "category": "Yachts"})
+def test_a_confident_wrong_row_can_be_fixed_too(client):
+    # Row 4 is a transfer the brain excluded and row 3 an Uber ride it filed under Travel.
+    # The user can change both.
+    rows = rows_of(upload(client, overrides={"4": "Other Business Expense", "3": "Personal (not business)"}))
+    assert rows[4]["status"] == "categorized"
+    assert rows[4]["category"] == "Other Business Expense"
+    assert rows[3]["status"] == "excluded"
+    assert rows[3]["user_set"] is True
+
+
+def test_personal_rows_are_left_out_of_the_totals(client):
+    body = upload(client, overrides={"5": "Personal (not business)"}).json()
+    row5 = {t["row"]: t for t in body["transactions"]}[5]
+    assert row5["status"] == "excluded"
+    assert body["summary"]["excluded_count"] == 3
+    assert all(c["category"] != "Personal (not business)" for c in body["summary"]["categories"])
+
+
+def test_no_fixes_means_no_memory_between_uploads(client):
+    upload(client, overrides={"5": "Meals"})
+    assert rows_of(upload(client))[5]["status"] == "needs_review"
+
+
+def test_unknown_category_in_a_fix_is_rejected(client):
+    resp = upload(client, overrides={"5": "Yachts"})
+    assert resp.status_code == 422
+    assert "Yachts" in resp.json()["detail"]
+
+
+@pytest.mark.parametrize("bad", ["not json", "[1, 2]", '{"abc": "Meals"}', '"Meals"'])
+def test_malformed_fixes_are_rejected(client, bad):
+    resp = client.post(
+        "/api/statements",
+        data={"overrides": bad},
+        files={"file": ("x.csv", SAMPLE.read_bytes(), "text/csv")},
+    )
     assert resp.status_code == 422
 
-
-def test_rule_without_a_merchant_is_rejected(client):
-    resp = client.post("/api/rules", json={"description": "***", "category": "Meals"})
-    assert resp.status_code == 422
 
 def test_confirming_a_duplicate_keeps_it_and_counts_it(client):
     row12 = {t["row"]: t for t in upload(client).json()["transactions"]}[12]

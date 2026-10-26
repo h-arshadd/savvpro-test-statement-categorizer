@@ -1,9 +1,4 @@
 import os
-from pathlib import Path
-
-BASE_DIR = Path(__file__).resolve().parents[1]  # backend/
-
-RULES_FILE = Path(os.environ.get("RULES_FILE", BASE_DIR / "data" / "rules.json"))
 
 CORS_ORIGINS = [
     origin.strip()

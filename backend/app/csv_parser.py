@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from app.models import RawTransaction
+from app.normalizer import normalize_merchant
+from app.rules import EXPENSE_CATEGORIES, RULES
 
 
 class ParseError(Exception):
@@ -35,6 +37,15 @@ _DATE_FORMATS = (
     "%m-%d-%Y", "%d-%m-%Y",
     "%d.%m.%Y", "%d-%b-%Y", "%d %b %Y", "%b %d, %Y",
 )
+
+# Known business-expense merchants. Used only as evidence for which sign means "money out".
+_EXPENSE_WORDS = tuple(
+    re.compile(rf"\b{re.escape(p)}\b")
+    for rule in RULES if rule.category in EXPENSE_CATEGORIES
+    for p in rule.patterns
+)
+
+_CURRENCY_CODE = re.compile(r"^(?:USD|EUR|GBP|CAD|AUD|INR|PKR|JPY|CHF)\s*|\s*(?:USD|EUR|GBP|CAD|AUD|INR|PKR|JPY|CHF)$")
 
 # Summary rows at the bottom of a statement (only skipped when they have no date).
 _FOOTER = re.compile(
@@ -80,15 +91,8 @@ def parse_csv(content: bytes, *, sign: str = "auto", day_first: bool = False) ->
         raise ParseError("No transactions found in the file.")
 
     if "amount" in cols and sign != "negative_is_expense":
-        positives = sum(1 for *_, a in parsed if a > 0)
-        negatives = sum(1 for *_, a in parsed if a < 0)
-        if sign == "positive_is_expense" or positives > negatives:
+        if sign == "positive_is_expense" or _purchases_look_positive(parsed, warnings):
             parsed = [(n, d, desc, -a) for n, d, desc, a in parsed]
-            if sign == "auto":
-                warnings.append(
-                    "Most amounts were positive, so purchases were assumed to be positive "
-                    "in this file and the signs were flipped."
-                )
 
     fmt, ambiguous = _pick_date_format([d for _, d, _, _ in parsed if d], day_first)
     if ambiguous and fmt:
@@ -115,13 +119,56 @@ def parse_csv(content: bytes, *, sign: str = "auto", day_first: bool = False) ->
     return ParseResult(transactions=transactions, warnings=warnings)
 
 
+def _purchases_look_positive(
+    parsed: list[tuple[int, str, str, Decimal]], warnings: list[str]
+) -> bool:
+    """Decide the sign convention from rows whose merchant we know is an expense.
+
+    Counting positive versus negative rows is not safe: a month with a few purchases and
+    several client payments would look "flipped". Known expense merchants are better
+    evidence. With no evidence we assume negative = money out and say so.
+    """
+    positive = negative = 0
+    for _, _, description, amount in parsed:
+        merchant = normalize_merchant(description)
+        if amount != 0 and any(p.search(merchant) for p in _EXPENSE_WORDS):
+            if amount > 0:
+                positive += 1
+            else:
+                negative += 1
+
+    if positive > negative:
+        warnings.append(
+            f"{positive} of {positive + negative} rows from known business merchants were "
+            "positive, so purchases were assumed to be positive in this file and the signs "
+            "were flipped. Use 'Amount signs' if that is wrong."
+        )
+        return True
+    if positive == negative:
+        warnings.append(
+            "Could not tell which sign means money out (no known merchants to go by). "
+            "Assumed negative amounts are purchases. Use 'Amount signs' if that is wrong."
+        )
+    return False
+
+
 def parse_amount(text: str) -> Decimal | None:
-    """'($1,234.50)' -> -1234.50, '12.50-' -> -12.50, '1.200,50' -> 1200.50. Blank -> None."""
+    """'($1,234.50)' -> -1234.50, '12.50-' -> -12.50, '9.99 CR' -> 9.99, '1.200,50' -> 1200.50.
+
+    Blank -> None. Anything else (stray letters, '1.2.3') raises ValueError so the row is
+    skipped with a warning instead of being read wrongly.
+    """
     s = text.strip().replace("\u2212", "-")
     if not s:
         return None
     negative = s.startswith("(") and s.endswith(")")
-    s = re.sub(r"[^\d.,+\-]", "", s)
+    # CR (credit) is money in, DR (debit) is money out, as on many card statements.
+    marker = re.search(r"\s*\b(CR|DR)\.?$", s, re.IGNORECASE)
+    if marker:
+        negative = negative or marker.group(1).upper() == "DR"
+        s = s[: marker.start()]
+    s = _CURRENCY_CODE.sub("", s.strip())
+    s = re.sub(r"[\s$€£¥₹()]", "", s)
     if s.endswith("-"):
         negative, s = True, s[:-1]
     elif s.startswith("-"):

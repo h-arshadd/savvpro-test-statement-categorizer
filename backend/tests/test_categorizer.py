@@ -7,7 +7,9 @@ import pytest
 from app.categorizer import categorize, categorize_all, summarize
 from app.models import RawTransaction, Status
 from app.parser import parse_statement
-from app.rules import FEES, INCOME, MEALS, NOT_SPENDING, OFFICE, REVIEW_THRESHOLD, SOFTWARE, TRAVEL
+from app.rules import (
+    FEES, INCOME, MEALS, NOT_SPENDING, OFFICE, OTHER, PERSONAL, REVIEW_THRESHOLD, SOFTWARE, TRAVEL,
+)
 
 SAMPLE = Path(__file__).resolve().parents[2] / "sample_data" / "freelancer_card.csv"
 
@@ -111,21 +113,115 @@ def test_zero_amount_goes_to_review():
     assert r.status is Status.NEEDS_REVIEW
 
 
-def test_saved_rule_decides_and_beats_built_in_rules():
-    overrides = {"JOES CAFE": MEALS, "ADOBE CREATIVE CLOUD": OFFICE}
-
-    cafe = categorize(txn("JOES CAFE 9921", "-14.25"), overrides)
-    assert cafe.status is Status.CATEGORIZED
-    assert cafe.category == MEALS
-    assert cafe.confidence == 1.0
-
-    adobe = categorize(txn("ADOBE CREATIVE CLOUD", "-59.99"), overrides)
+def test_a_user_choice_beats_the_brain_even_on_a_confident_row():
+    adobe = categorize(txn("ADOBE CREATIVE CLOUD", "-59.99"), OFFICE)
+    assert adobe.status is Status.CATEGORIZED
     assert adobe.category == OFFICE
+    assert adobe.user_set is True
+    assert adobe.confidence == 1.0
 
 
-def test_saved_rule_can_mark_a_merchant_as_not_spending():
-    r = categorize(txn("ZXQV HOLDINGS", "-10.00"), {"ZXQV HOLDINGS": NOT_SPENDING})
+def test_user_can_mark_a_row_as_personal_and_it_is_left_out():
+    r = categorize(txn("JOES CAFE 9921", "-14.25"), PERSONAL)
     assert r.status is Status.EXCLUDED
+    assert r.category == PERSONAL
+
+
+def test_user_can_override_an_excluded_row():
+    r = categorize(txn("TRANSFER TO SAVINGS", "-500.00"), OTHER)
+    assert r.status is Status.CATEGORIZED
+    assert r.category == OTHER
+
+
+def test_overrides_are_per_row_not_per_merchant():
+    d = dt.date(2026, 9, 1)
+    rows = [
+        txn("AMAZON MKTP US*AAA111", "-87.10", row=2, date=d),
+        txn("AMAZON MKTP US*BBB222", "-12.00", row=3, date=d),
+    ]
+    results = categorize_all(rows, {2: OFFICE})
+    assert results[0].status is Status.CATEGORIZED
+    assert results[1].status is Status.NEEDS_REVIEW  # same merchant, still asks
+
+
+def test_overrides_do_not_leak_between_calls():
+    rows = [txn("JOES CAFE 9921", "-14.25", row=5)]
+    assert categorize_all(rows, {5: MEALS})[0].status is Status.CATEGORIZED
+    assert categorize_all(rows)[0].status is Status.NEEDS_REVIEW
+
+
+def test_user_choice_on_a_duplicate_row_counts_as_a_real_charge():
+    d = dt.date(2026, 9, 12)
+    rows = [txn("GITHUB INC", "-4.00", row=1, date=d), txn("GITHUB INC", "-4.00", row=2, date=d)]
+    results = categorize_all(rows, {2: SOFTWARE})
+    assert results[1].status is Status.CATEGORIZED
+    assert results[1].duplicate_of is None
+
+
+# --- Inputs chosen to break the brain: a known word inside something it is not ----------
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "HILTON GARDEN PIZZA",  # hotel word + food word
+        "SLACK BAR AND GRILL",  # software word + food word
+        "NOTION COFFEE",
+        "AVIS BEAUTY SALON",  # AVIS alone is also a name, not only the car rental
+        "AUTOPAY GYM MEMBERSHIP",  # AUTOPAY is how it was paid, not who was paid
+    ],
+)
+def test_a_known_word_inside_a_different_business_is_not_trusted(description):
+    r = categorize(txn(description, "-40.00"))
+    assert r.status is Status.NEEDS_REVIEW
+    assert r.category is None
+
+
+def test_two_confident_rules_that_disagree_are_not_settled_by_picking_one():
+    # Both rules are 0.95 sure on their own. Together they contradict, so ask.
+    r = categorize(txn("ZOOM HILTON CONFERENCE", "-300.00"))
+    assert r.status is Status.NEEDS_REVIEW
+    assert r.category is None
+    assert "Software" in r.reason and "Travel" in r.reason
+
+
+def test_the_real_car_rental_name_still_matches():
+    r = categorize(txn("AVIS RENT A CAR 1234", "-210.00"))
+    assert r.status is Status.CATEGORIZED
+    assert r.category == TRAVEL
+
+
+def test_conflict_between_two_categories_is_sent_to_review_with_both_named():
+    r = categorize(txn("HILTON GARDEN PIZZA", "-30.00"))
+    assert "Travel" in r.reason and "Meals" in r.reason
+
+
+def test_a_longer_phrase_still_beats_its_own_shorter_part():
+    r = categorize(txn("AMAZON WEB SERVICES", "-30.00"))
+    assert r.category == SOFTWARE
+    assert categorize(txn("TRANSFER TO SAVINGS", "-5.00")).status is Status.EXCLUDED
+
+
+def test_the_word_invoice_alone_is_not_income():
+    r = categorize(txn("INVOICE FROM LANDLORD", "2500.00"))
+    assert r.category != INCOME
+    assert r.status is Status.NEEDS_REVIEW
+    assert categorize(txn("INVOICE PAYMENT ACME", "2500.00")).category == INCOME
+
+
+@pytest.mark.parametrize("description, amount", [("ZOOM", "5000.00"), ("AIRBNB PAYOUT", "900.00")])
+def test_money_in_from_a_known_merchant_is_only_a_refund_if_it_says_so(description, amount):
+    r = categorize(txn(description, amount))
+    assert r.status is Status.NEEDS_REVIEW
+    assert r.suggestion is not None
+    assert "refund" in r.reason.lower()
+
+
+@pytest.mark.parametrize("description", ["REFUND ZOOM.US", "ADOBE CREDIT", "ZOOM REVERSAL"])
+def test_money_in_that_says_refund_reduces_its_category(description):
+    r = categorize(txn(description, "15.99"))
+    assert r.status is Status.CATEGORIZED
+    assert r.category in (SOFTWARE,)
+    assert "reduces" in r.reason
 
 
 def test_duplicate_charge_is_flagged_but_first_one_is_kept():
@@ -214,3 +310,10 @@ def test_confirmed_duplicate_is_kept_as_a_normal_charge():
     assert kept[1].status is Status.CATEGORIZED
     assert kept[1].category == SOFTWARE
     assert kept[1].duplicate_of is None
+
+def test_personal_rows_are_not_in_any_total():
+    rows = [txn("ADOBE CREATIVE CLOUD", "-59.99", row=1), txn("JOES CAFE 9921", "-14.25", row=2)]
+    summary = summarize(categorize_all(rows, {2: PERSONAL}))
+    assert [c.category for c in summary.categories] == [SOFTWARE]
+    assert summary.excluded_count == 1
+    assert summary.needs_review_count == 0

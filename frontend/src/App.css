@@ -334,3 +334,11 @@ th {
     grid-template-columns: 1fr;
   }
 }
+.tag {
+  font-size: 0.75rem;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}

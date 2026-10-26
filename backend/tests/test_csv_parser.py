@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app.csv_parser import ParseError, parse_csv
+from app.csv_parser import ParseError, parse_amount, parse_csv
 from app.parser import parse_statement
 
 SAMPLE = Path(__file__).resolve().parents[2] / "sample_data" / "freelancer_card.csv"
@@ -33,7 +33,7 @@ def test_debit_credit_columns():
 
 
 POSITIVE_PURCHASES = (
-    b"Date,Description,Amount\n2026-09-01,STORE A,50.00\n2026-09-02,STORE B,20.00\n"
+    b"Date,Description,Amount\n2026-09-01,ADOBE CREATIVE CLOUD,50.00\n2026-09-02,ZOOM.US,20.00\n"
     b"2026-09-03,PAYMENT THANK YOU,-100.00\n"
 )
 
@@ -41,7 +41,33 @@ POSITIVE_PURCHASES = (
 def test_auto_flips_when_purchases_are_positive():
     r = parse_csv(POSITIVE_PURCHASES)
     assert amounts(r) == [Decimal("-50"), Decimal("-20"), Decimal("100")]
-    assert any("positive" in w for w in r.warnings)
+    assert any("flipped" in w for w in r.warnings)
+
+
+def test_normal_month_with_more_payments_in_than_purchases_is_not_flipped():
+    # 3 purchases and 4 client payments. Counting rows would wrongly flip this file.
+    data = (
+        b"Date,Description,Amount\n"
+        b"2026-09-01,ADOBE CREATIVE CLOUD,-59.99\n2026-09-02,DELTA AIR 0062345678912,-412.30\n"
+        b"2026-09-03,STAPLES 00123,-42.18\n2026-09-05,CLIENT PAYMENT ACME LLC,2500.00\n"
+        b"2026-09-12,CLIENT PAYMENT BETA LLC,1800.00\n2026-09-15,CLIENT PAYMENT GAMMA LLC,900.00\n"
+        b"2026-09-20,STRIPE PAYOUT,640.00\n"
+    )
+    r = parse_csv(data)
+    assert amounts(r)[:3] == [Decimal("-59.99"), Decimal("-412.30"), Decimal("-42.18")]
+    assert r.warnings == []
+
+
+def test_unknown_merchants_give_no_evidence_so_signs_are_kept_and_the_user_is_told():
+    r = parse_csv(b"Date,Description,Amount\n2026-09-01,ZXQV HOLDINGS,50.00\n2026-09-02,QQQ LTD,20.00\n")
+    assert amounts(r) == [Decimal("50.00"), Decimal("20.00")]  # not flipped on a guess
+    assert any("Could not tell" in w for w in r.warnings)
+
+
+def test_forcing_positive_is_expense_flips_without_a_warning():
+    r = parse_csv(b"Date,Description,Amount\n2026-09-01,ZXQV HOLDINGS,50.00\n", sign="positive_is_expense")
+    assert amounts(r) == [Decimal("-50.00")]
+    assert r.warnings == []
 
 
 def test_sign_override():
@@ -76,10 +102,29 @@ def test_merchant_starting_with_total_is_kept():
 
 
 def test_bad_amount_rows_are_skipped_with_warning():
-    r = parse_csv(b"Date,Description,Amount\n2026-09-01,STORE,-5.00\n2026-09-02,WEIRD,abc\n2026-09-03,OTHER,1.2.3\n")
+    r = parse_csv(b"Date,Description,Amount\n2026-09-01,ADOBE,-5.00\n2026-09-02,WEIRD,abc\n2026-09-03,OTHER,1.2.3\n")
     assert len(r.transactions) == 1
     assert len(r.warnings) == 2
     assert "Row 3" in r.warnings[0]
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("59.99 CR", Decimal("59.99")),   # credit: money in
+        ("59.99 DR", Decimal("-59.99")),  # debit: money out
+        ("USD 12.50", Decimal("12.50")),
+        ("-$5.00", Decimal("-5.00")),
+    ],
+)
+def test_amount_markers_are_understood(text, expected):
+    assert parse_amount(text) == expected
+
+
+@pytest.mark.parametrize("text", ["1e5", "12.50 abc", "1.2.3", "N/A"])
+def test_amounts_with_stray_letters_are_rejected_not_guessed(text):
+    with pytest.raises(ValueError):
+        parse_amount(text)
 
 
 def test_day_first_detected_from_data():

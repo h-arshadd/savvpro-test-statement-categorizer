@@ -19,31 +19,18 @@ async function request(url, options) {
   return res.json()
 }
 
-export function analyzeStatement(file, { sign, dayFirst, keepRows }) {
+// overrides: { [rowNumber]: category } the user chose. Nothing is stored on the server,
+// so the same file is sent again together with the user's fixes.
+export function analyzeStatement(file, { sign, dayFirst, keepRows, overrides }) {
   const params = new URLSearchParams({ sign })
   if (dayFirst) params.set('day_first', 'true')
   keepRows.forEach((row) => params.append('keep_rows', String(row)))
   const form = new FormData()
   form.append('file', file)
+  form.append('overrides', JSON.stringify(overrides))
   return request(`/api/statements?${params}`, { method: 'POST', body: form })
 }
 
 export function fetchCategories() {
   return request('/api/categories')
-}
-
-export function saveRule(description, category) {
-  return request('/api/rules', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ description, category }),
-  })
-}
-
-export function fetchRules() {
-  return request('/api/rules')
-}
-
-export function deleteRule(merchant) {
-  return request(`/api/rules/${encodeURIComponent(merchant)}`, { method: 'DELETE' })
 }

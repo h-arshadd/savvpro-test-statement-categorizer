@@ -38,9 +38,9 @@ export default function SummaryCards({ summary }) {
       <div className="stats">
         <Stat label="Income received" value={formatMoney(income)} />
         <Stat
-          label="Not spending"
+          label="Not counted"
           value={plural(excluded_count, 'row')}
-          detail="Transfers and card payments, left out of the totals"
+          detail="Transfers, card payments and personal charges, left out of the totals"
         />
         <Stat
           label="Needs review"

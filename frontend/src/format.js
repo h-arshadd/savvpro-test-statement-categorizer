@@ -16,5 +16,5 @@ export function plural(count, word) {
 export const STATUS_LABEL = {
   categorized: 'Categorized',
   needs_review: 'Needs review',
-  excluded: 'Not spending',
+  excluded: 'Not counted',
 }

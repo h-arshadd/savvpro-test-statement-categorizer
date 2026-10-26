@@ -1,69 +1,65 @@
 import { useEffect, useState } from 'react'
-import { analyzeStatement, deleteRule, fetchCategories, fetchRules, saveRule } from './api'
+import { analyzeStatement, fetchCategories } from './api'
 import UploadPanel from './components/UploadPanel'
-import SavedRules from './components/SavedRules'
 import SummaryCards from './components/SummaryCards'
 import TransactionTable from './components/TransactionTable'
 import './App.css'
 
 export default function App() {
   const [categories, setCategories] = useState([])
-  const [rules, setRules] = useState({}) // saved merchant rules: { MERCHANT: category }
   const [source, setSource] = useState(null) // the file and options of the last analysis
-  const [keepRows, setKeepRows] = useState([])
+  const [overrides, setOverrides] = useState({}) // { rowNumber: category } chosen by the user
+  const [keepRows, setKeepRows] = useState([]) // duplicates the user confirmed as real
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-
-  const loadRules = () => fetchRules().then(setRules)
 
   useEffect(() => {
     fetchCategories()
       .then(setCategories)
       .catch((e) => setError(e.message))
-    loadRules().catch((e) => setError(e.message))
   }, [])
 
-  // beforeAnalyze is a change to the saved rules. With no file loaded yet there is nothing to
-  // analyze, so only the rules change.
-  async function run(nextSource, nextKeep, beforeAnalyze) {
+  // Nothing is saved on the server. Every change sends the same file again together with
+  // the user's fixes, and the screen only updates if that succeeds.
+  async function analyze(nextSource, nextOverrides, nextKeep) {
     setLoading(true)
     setError('')
     try {
-      if (beforeAnalyze) await beforeAnalyze()
-      if (nextSource) {
-        setResult(await analyzeStatement(nextSource.file, { ...nextSource.options, keepRows: nextKeep }))
-      }
+      const next = await analyzeStatement(nextSource.file, {
+        ...nextSource.options,
+        overrides: nextOverrides,
+        keepRows: nextKeep,
+      })
+      setSource(nextSource)
+      setOverrides(nextOverrides)
+      setKeepRows(nextKeep)
+      setResult(next)
     } catch (e) {
       setError(e.message)
     } finally {
-      loadRules().catch(() => {}) // keep the list in step with the server
       setLoading(false)
     }
   }
 
+  // A new upload starts clean: fixes belong to the file they were made on.
   function handleAnalyze(file, options) {
-    const next = { file, options }
-    setSource(next)
-    setKeepRows([])
     setResult(null)
-    run(next, [])
+    analyze({ file, options }, {}, [])
   }
 
-  // The user's fix becomes a saved rule, then the same file is analyzed again.
-  function handleCategorize(row, category) {
-    run(source, keepRows, () => saveRule(row.description, category))
+  function handleSetCategory(row, category) {
+    analyze(source, { ...overrides, [row.row]: category }, keepRows)
+  }
+
+  function handleUndo(row) {
+    const rest = { ...overrides }
+    delete rest[row.row]
+    analyze(source, rest, keepRows)
   }
 
   function handleKeep(row) {
-    const next = [...keepRows, row.row]
-    setKeepRows(next)
-    run(source, next)
-  }
-
-  // Taking a rule back: delete it, then analyze the same file again without it.
-  function handleRemoveRule(merchant) {
-    run(source, keepRows, () => deleteRule(merchant))
+    analyze(source, overrides, [...keepRows, row.row])
   }
 
   return (
@@ -77,8 +73,6 @@ export default function App() {
       </header>
 
       <UploadPanel onAnalyze={handleAnalyze} loading={loading} />
-
-      <SavedRules rules={rules} busy={loading} onRemove={handleRemoveRule} />
 
       {error && (
         <div className="callout error" role="alert">
@@ -105,13 +99,11 @@ export default function App() {
             filename={result.filename}
             categories={categories}
             busy={loading}
-            onCategorize={handleCategorize}
+            onSetCategory={handleSetCategory}
+            onUndo={handleUndo}
             onKeep={handleKeep}
           />
-          <p className="muted note">
-            A category you choose is saved as a rule: the same merchant is sorted that way in every
-            future statement. You can remove saved rules in the list under the upload form.
-          </p>
+          
         </>
       ) : (
         !loading &&
