@@ -154,3 +154,9 @@ docs/                    screenshots and AI token usage screenshots
 sample_data/             fake statements for trying the app
 docker-compose.yml
 ```
+## Tech stack
+
+- **Backend:** Python 3.12, FastAPI, Uvicorn, rapidfuzz (text similarity only, not an AI model)
+- **Frontend:** React 19 with Vite
+- **Tests:** pytest (backend), ESLint (frontend)
+- **Packaging and CI:** Docker Compose, nginx, GitHub Actions
