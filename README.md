@@ -6,6 +6,12 @@ Upload a business credit card statement (CSV) and get every transaction sorted i
 
 The part that decides categories is plain Python rules in `backend/app/`. No AI model is used at runtime and there are no API keys. See [DESIGN.md](DESIGN.md) for how it decides and [AI_USAGE.md](AI_USAGE.md) for how AI tools were used to build it.
 
+## Screenshots
+
+![Upload and summary](docs/screenshots/01-summary.png)
+
+![Rows with categories and Needs Review](docs/screenshots/02-needs-review.png)
+
 ## What you can do in the app
 
 - Upload a `.csv` statement (up to 5 MB).
@@ -19,15 +25,24 @@ The part that decides categories is plain Python rules in `backend/app/`. No AI 
 ## Requirements
 
 - Python 3.10 or newer
-- Node.js (developed and tested with Node 24)
+- Node.js 22 or newer (CI and Docker use Node 24)
+- Optional: Docker, to run everything with one command
 
 ## Run it
 
-You need two terminals: one for the backend, one for the frontend.
+### Option A: Docker
 
-### 1. Backend (terminal 1)
+```bash
+docker compose up --build
+```
 
-Windows PowerShell:
+Open http://localhost:8080. The frontend container proxies `/api` to the backend container.
+
+### Option B: two terminals
+
+You need one terminal for the backend and one for the frontend.
+
+**Backend** (Windows PowerShell):
 
 ```powershell
 cd backend
@@ -37,7 +52,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-macOS / Linux:
+**Backend** (macOS / Linux):
 
 ```bash
 cd backend
@@ -49,7 +64,7 @@ uvicorn app.main:app --reload
 
 The API runs at http://127.0.0.1:8000. Check http://127.0.0.1:8000/api/health, it should return `{"status":"ok"}`. Interactive API docs are at http://127.0.0.1:8000/docs.
 
-### 2. Frontend (terminal 2)
+**Frontend:**
 
 ```bash
 cd frontend
@@ -59,20 +74,29 @@ npm run dev
 
 Open http://localhost:5173. The dev server proxies `/api` to the backend on port 8000, so start the backend first.
 
-### 3. Try it
+### Try it
 
-Upload `sample_data/freelancer_card.csv` (a fake statement). It has 17 rows: 8 are categorized, 2 are excluded (a transfer and a card payment), and 7 need review (a cafe, an Amazon purchase and refund, a possible duplicate, and so on).
+Upload `sample_data/freelancer_card.csv` (a fake statement). It has 17 rows: 8 are categorized, 2 are excluded (a transfer and a card payment), and 7 need review (a cafe, a coffee shop, a restaurant, Uber Eats, an Amazon purchase, an Amazon credit and a possible duplicate GitHub charge).
+
+`sample_data/tricky_cases.csv` has 12 rows made to trip the rules: a known word inside another business, money in that is not a refund, and a name stuck to a long number. 7 are categorized and 5 need review.
 
 ## Run the tests
 
-Run from the `backend/` folder with the virtual environment active:
+From the `backend/` folder with the virtual environment active:
 
 ```bash
 pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-Frontend checks: `npm run lint` and `npm run build` (in `frontend/`). The same backend tests and frontend checks run in GitHub Actions (`.github/workflows/ci.yml`).
+Frontend checks, from `frontend/`:
+
+```bash
+npm run lint
+npm run build
+```
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the backend tests, the frontend lint and build, and a Docker build on every push to `main` and on pull requests.
 
 ## Configuration
 
@@ -90,7 +114,7 @@ Nothing is stored. Uploaded statements are processed in memory and your fixes li
 |---|---|
 | `GET /api/health` | Health check. |
 | `GET /api/categories` | List of category names. |
-| `POST /api/statements` | Upload a statement (multipart field `file`). Optional form field `overrides`: JSON like `{"5": "Meals"}`, the categories the user chose for specific row numbers. Optional query: `sign` (`auto`, `negative_is_expense`, `positive_is_expense`), `day_first` (true/false), `keep_rows` (repeatable row number to confirm as a real charge). Returns the categorized rows, a summary and any warnings. |
+| `POST /api/statements` | Upload a statement (multipart field `file`). Optional form field `overrides`: JSON like `{"5": "Meals"}`, the categories the user chose for specific row numbers (row numbers are line numbers in the file). Optional query: `sign` (`auto`, `negative_is_expense`, `positive_is_expense`), `day_first` (true/false), `keep_rows` (repeatable row number to confirm as a real charge). Returns the categorized rows, a summary and any warnings. |
 
 Money values in responses are strings (for example `"-59.99"`) to avoid floating point errors. Negative means money out, positive means money in.
 
@@ -116,12 +140,17 @@ backend/
     rules.py         the category rules and their confidence
     categorizer.py   the decision logic and totals
     models.py        data models
-    schemas.py       API request and response models
+    schemas.py       API response model
     config.py        environment settings
-  tests/             pytest tests
+  tests/                 pytest tests
+  Dockerfile
   requirements.txt       what the app needs (pinned)
   requirements-dev.txt   adds the test tools
-frontend/            React + Vite app
-.github/workflows/   CI: tests, lint and build
-sample_data/         fake statement for trying the app
+frontend/                React + Vite app
+  Dockerfile
+  nginx.conf             serves the build and proxies /api to the backend
+.github/workflows/       CI: tests, lint, build, Docker build
+docs/                    screenshots and AI token usage screenshots
+sample_data/             fake statements for trying the app
+docker-compose.yml
 ```

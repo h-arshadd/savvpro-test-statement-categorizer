@@ -4,17 +4,11 @@
 
 **A freelancer or small business owner reading their business credit card statement at tax time.**
 
-I used the freelancer example from the task as my starting point and widened it to a small business owner reading a business credit card CSV.
-
 They download a CSV from their card provider and need every charge sorted into a category they can use on a tax return, plus a total per category. The expensive mistake here is a confident wrong answer: a personal dinner filed as a business expense, or a refund counted as income. So the app is built around one rule: **if it is not sure, it says so and asks.**
 
 Categories: Software & Subscriptions, Travel, Meals, Office Supplies, Advertising, Phone & Internet, Interest & Bank Fees, and **Other Business Expense** for anything that does not fit. Three more are not business spending: **Income**, **Transfers & Card Payments** and **Personal (not business)**. The last two are shown in the table but left out of the totals. Personal exists because a business card often carries a personal charge, and the user needs a way to say so.
 
 This is a bookkeeping helper, not tax advice.
-
-## How this design came about
-
-I used Claude (claude.ai web chat only, no CLI or agent tools) to help me understand `TASK.md`, then had it write a PRD that the AI followed to build a first prototype. I let it build the prototype first on purpose, then read the code file by file and tested it myself, in the code and in the browser. That is where the real design decisions came from: this document describes the version after those fixes, not the prototype. Several parts of the prototype were wrong or unnecessary and were changed or removed, including a saved-rules feature that wrote a JSON file nobody had asked for. What went wrong and how it was found is listed in [AI_USAGE.md](AI_USAGE.md).
 
 ## The flow
 
@@ -43,7 +37,7 @@ Bank descriptions are noisy: `SQ *BLUE BOTTLE COFFEE`, `AMAZON MKTP US*2K4X91`, 
    - If what is left still points to **different categories**, the row goes to review and names both. Length does not decide: `HILTON GARDEN PIZZA` is a hotel word and a food word, and the brain does not pick.
 4. **Confidence threshold.** Each rule has a confidence. Below **0.8** the row goes to Needs Review with the rule's category as a *suggestion*, not an answer.
 5. **Money in from a known merchant.** It is only treated as a refund (it reduces that category) if the description says so (`REFUND`, `RETURN`, `REVERSAL`, `CREDIT`, `CHARGEBACK`). Otherwise it could be a payout or something else, so it goes to review with a suggestion.
-6. **Misspellings.** If nothing matches exactly, a string-similarity check (`rapidfuzz`, 88%+ similar, only for patterns of 6+ characters) may find a near match, like `ADOBE CREATVE CLOUD`. This only produces a suggestion in Needs Review. It never auto-assigns.
+6. **Misspellings.** If nothing matches exactly, a string-similarity check (`rapidfuzz`, 88%+ similar, only for patterns of 6+ characters) may find a near match, like `MARIOTT HOTEL` for `MARRIOTT`. This only produces a suggestion in Needs Review. It never auto-assigns.
 7. **Nothing matches** goes to Needs Review with a reason ("Unknown merchant", or for money coming in, "could be a refund or income").
 
 The brain is a word list, so it cannot know everything about a merchant. Two things keep that safe. Where it can see a conflict it asks instead of choosing, and **the user can change any row**, not only the ones it asked about.
@@ -89,7 +83,7 @@ Negative means money out, positive means money in, everywhere. Category totals a
 
 The user can change the category of any row: a Needs Review row (accept the suggestion or pick one), a row the brain was confident about but got wrong, or a row it excluded. There is also **Personal (not business)** and **Other Business Expense**, so a row never has to be forced into a wrong category. A changed row shows "set by you" and an Undo button.
 
-A change applies to that one row only, not to the merchant. This is on purpose: the rows that reach review are the ones where the merchant does not decide the category (an Amazon order can be an office chair or a birthday gift), so one answer must not be applied to the next Amazon row. Nothing is stored. The first version of this app saved a rule per merchant to a JSON file, which I noticed appearing in the project when I ran it; it was removed because it made exactly that mistake, and because the task does not need any state to live between uploads.
+A change applies to that one row only, not to the merchant. This is on purpose: the rows that reach review are the ones where the merchant does not decide the category (an Amazon order can be an office chair or a birthday gift), so one answer must not be applied to the next Amazon row. Nothing is stored. The first version of this app saved a rule per merchant to a JSON file; it was removed because it made exactly that mistake, and because the task does not need any state to live between uploads.
 
 A row the user changed is not flagged as a duplicate, since choosing a category for it already counts it as a real charge.
 
@@ -99,18 +93,17 @@ No. It computes a text similarity score between two strings (an edit-distance st
 
 ## How it is tested
 
-Tests are in `backend/tests/` (normalizer, CSV parser, categorizer, API). The expected totals for the sample statement were worked out by hand from the CSV rather than copied from the program's output.
+109 pytest tests in `backend/tests/` (normalizer, CSV parser, categorizer, API). Expected totals for the sample statement were worked out by hand from the CSV, not copied from the program's output.
 
-The tests were written by the AI, and AI-written tests are written to fit the code, so they passed from the start and said little about whether the code was right. I did not let them decide that. I read the code, tried my own inputs, and used the app in the browser. I also told the AI to question its own design instead of defending it.
-
-The suite now also includes inputs written to break the code: a known word inside a different business, two confident rules that contradict each other, money in that is not a refund, a month with more payments in than purchases, and amounts with stray letters. I also broke the code on purpose (for example turning off the conflict check) to confirm those tests fail. I ran the tests, lint and build myself, and Claude also ran them in a sandbox to look for more problems. Passing tests are still not treated as proof, so the app was also tried by hand (see AI_USAGE.md). There are no frontend tests; the frontend is checked with lint, a build and by hand.
+The tests were written by the AI, so they mostly checked inputs the code was built for. They were extended with inputs meant to break it: a known word inside a different business, two confident rules that disagree, money in that is not a refund, a month with more payments in than purchases, and amounts with stray letters. `sample_data/tricky_cases.csv` holds several of these. There are no frontend tests; the frontend is checked with `npm run lint`, `npm run build` and by hand.
 
 ## Known limitations
 
 - **CSV only.** No PDF or Excel.
-- **Small rule list.** It covers common freelancer merchants (about 70 phrases). Anything else goes to Needs Review, which is the intended behaviour. New rules are added in `backend/app/rules.py`.
+- **Small rule list.** It covers common freelancer merchants (72 phrases). Anything else goes to Needs Review, which is the intended behaviour. New rules are added in `backend/app/rules.py`.
 - **The brain can still be wrong.** It matches words, so a known word in a description the rules did not anticipate can still be filed with full confidence. Conflicts between categories are caught and asked about, and the user can change any row, but the app cannot see what it has not been taught. For example, `TRANSFER TO SAVINGS ACCOUNT OF BOB` still matches the known phrase `TRANSFER TO SAVINGS` and is left out of the totals.
 - **Sign auto-detect is still a guess.** It uses known merchants as evidence and says so, but a file with no known merchants gets no flip. The user can override it.
 - **Changes are per row and not stored.** Upload the same file again and you start fresh. A merchant with 30 rows needs 30 changes. Saving choices per user would fix that but needs accounts.
 - **Every change sends the whole file again,** and the table shows every row with no paging. Fine for a few hundred rows, slow near the 5 MB limit.
 - **Duplicate check is exact.** Same date, merchant and amount only.
+- **Single currency, no tax logic.** Amounts are treated as one currency and no deductibility rules are applied beyond asking about meals.
