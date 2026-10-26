@@ -1,83 +1,126 @@
-# Step-by-Step Guide: How to Fork, Clone, and Submit Your Assessment
+# Statement Categorizer
 
-**Repository:** https://github.com/savvpro/savvpro-test-statement-categorizer
+Upload a business credit card statement (CSV) and get every transaction sorted into a tax category, with a total per category. If the app is not sure about a row, it says so and asks you instead of guessing.
 
----
+**Use case:** a freelancer or small business owner who needs their business card statement sorted at tax time.
 
-## Step 1: Fork the Repository
+The part that decides categories is plain Python rules in `backend/app/`. No AI model is used at runtime and there are no API keys. See [DESIGN.md](DESIGN.md) for how it decides and [AI_USAGE.md](AI_USAGE.md) for how AI tools were used to build it.
 
-1. Go to the repository: https://github.com/savvpro/savvpro-test-statement-categorizer
-2. Click the **Fork** button in the top-right corner.
-3. This will create a copy of the repository in your GitHub account.
+## What you can do in the app
 
----
+- Upload a `.csv` statement (up to 5 MB).
+- See every row with its category and whether it was categorized, excluded or needs review (filterable).
+- See totals per category, income, and how many rows are excluded or waiting for review.
+- Fix rows in **Needs Review**: accept the suggestion or pick a category. Your choice is saved as a rule for that merchant, so it applies to future uploads too.
+- Confirm that a flagged possible duplicate is a real charge.
+- Download the result as a CSV (all rows, with status, category, suggestion and the reason for each decision).
+- Choose how to read the file if it guesses wrong: sign convention (which amounts are expenses) and day-first dates.
 
-## Step 2: Clone Your Fork
+## Requirements
 
-1. Open your forked repository in your GitHub account.
-2. Click the green **Code** button and copy the URL.
-3. Run the following commands:
+- Python 3.10 or newer
+- Node.js 20 or newer
 
-```bash
-git clone https://github.com/your-username/savvpro-test-statement-categorizer.git
-cd savvpro-test-statement-categorizer
+## Run it
+
+You need two terminals: one for the backend, one for the frontend.
+
+### 1. Backend (terminal 1)
+
+Windows PowerShell:
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+uvicorn app.main:app --reload
 ```
 
----
-
-## Step 3: Read the Task
-
-Open and read **TASK.md** carefully before writing any code.
-
-- TASK.md URL: https://github.com/savvpro/savvpro-test-statement-categorizer/blob/main/TASK.md
-
----
-
-## Step 4: Create a New Branch
-
-Branch pattern: `candidate-<your-github-username>`
+macOS / Linux:
 
 ```bash
-git checkout -b candidate-<your-github-username>
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload
 ```
 
-**Example:**
-```bash
-git checkout -b candidate-johndoe
-```
+The API runs at http://127.0.0.1:8000. Check http://127.0.0.1:8000/api/health, it should return `{"status":"ok"}`. Interactive API docs are at http://127.0.0.1:8000/docs.
 
----
-
-## Step 5: Complete the Task
-
-Build the full application on your branch.
-
----
-
-## Step 6: Push Your Branch
+### 2. Frontend (terminal 2)
 
 ```bash
-git add .
-git commit -m "feat: complete statement-categorizer assessment"
-git push origin candidate-<your-github-username>
+cd frontend
+npm install
+npm run dev
 ```
 
----
+Open http://localhost:5173. The dev server proxies `/api` to the backend on port 8000, so start the backend first.
 
-## Step 7: Create a Pull Request
+### 3. Try it
 
-1. Go to your **forked** repository on GitHub (`https://github.com/your-username/savvpro-test-statement-categorizer`).
-2. Click **Compare & pull request** (GitHub will show this banner after you push your branch).
-3. Ensure the following settings in the PR form:
-   - **Base repository:** `savvpro/savvpro-test-statement-categorizer` ← the original repo
-   - **Base branch:** `main`
-   - **Head repository:** `your-username/savvpro-test-statement-categorizer` ← your fork
-   - **Compare branch:** `candidate-<your-github-username>`
-4. Use the title: `feat: complete statement-categorizer assessment`
-5. Submit the pull request.
+Upload `sample_data/freelancer_card.csv` (a fake statement). It has 17 rows: 8 are categorized, 2 are excluded (a transfer and a card payment), and 7 need review (a cafe, an Amazon purchase and refund, a possible duplicate, and so on).
 
-> 💡 **Tip:** If you don't see the banner, go to the original repo (`savvpro/savvpro-test-statement-categorizer`), click the **Pull requests** tab, then click **New pull request** → **compare across forks**.
+## Run the tests
 
----
+Run from the `backend/` folder with the virtual environment active:
 
-> ⚠️ **Important:** No submissions will be accepted after the deadline.
+```bash
+python -m pytest
+```
+
+## Configuration
+
+Both settings are optional environment variables for the backend.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `RULES_FILE` | `backend/data/rules.json` | Where your saved merchant rules are stored. |
+| `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated list of frontend origins allowed to call the API. |
+
+Uploaded statements are processed in memory and are never saved. Only your saved merchant rules are written to disk (`backend/data/` is git-ignored).
+
+## API
+
+| Method and path | What it does |
+|---|---|
+| `GET /api/health` | Health check. |
+| `GET /api/categories` | List of category names. |
+| `POST /api/statements` | Upload a statement (multipart field `file`). Optional query: `sign` (`auto`, `negative_is_expense`, `positive_is_expense`), `day_first` (true/false), `keep_rows` (repeatable row number to confirm as a real charge). Returns the categorized rows, a summary and any warnings. |
+| `GET /api/rules` | Saved merchant rules. |
+| `POST /api/rules` | Save a rule: `{ "description": "JOES CAFE 9921", "category": "Meals" }`. |
+
+Money values in responses are strings (for example `"-59.99"`) to avoid floating point errors. Negative means money out, positive means money in.
+
+## Supported CSV files
+
+- Header row with a date, a description and either one amount column or separate debit/credit columns (many common header names are recognised). A few lines of text above the header are fine.
+- Comma, semicolon, tab or pipe separated.
+- Amounts like `-59.99`, `($1,234.50)`, `12.50-` and `1.200,50`.
+- Several date formats, including `2026-09-01`, `09/01/2026` and `01.09.2026`.
+- Summary rows such as "Total" or "Closing balance" are skipped. Rows that cannot be read are skipped with a warning shown in the app.
+
+PDF and Excel files are not supported.
+
+## Project layout
+
+```
+backend/
+  app/
+    main.py          API routes
+    csv_parser.py    reads a CSV into transactions
+    parser.py        file type and size checks
+    normalizer.py    cleans messy merchant descriptions
+    rules.py         the category rules and their confidence
+    categorizer.py   the decision logic and totals
+    rules_store.py   saves the user's merchant rules to a JSON file
+    models.py        data models
+    schemas.py       API request and response models
+    config.py        environment settings
+  tests/             pytest tests
+  requirements.txt
+frontend/            React + Vite app
+sample_data/         fake statement for trying the app
+```
