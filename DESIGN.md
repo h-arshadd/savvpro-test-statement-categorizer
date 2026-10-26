@@ -101,6 +101,7 @@ AI-written tests can still be too agreeable, so passing tests are not treated as
 - **Sign auto-detect is a guess.** On an account where deposits outnumber purchases, `auto` can guess wrong. The app warns when it flips signs, and the user can override it.
 - **One shared rules file.** There are no user accounts, so all saved rules are shared. Fine for a single user, not for a multi-user service.
 - **A saved rule covers a merchant, not a transaction.** It ignores the amount and its direction, so a merchant saved as Income would also pull a later charge from the same merchant into income. It is visible and removable, but it is not smarter than that.
+- **A known word can still win when it should not.** The brain trusts a rule match even when other words in the description point elsewhere. Examples found by testing: `HILTON GARDEN PIZZA` is filed as Travel, `AVIS BEAUTY SALON` as Travel, `AUTOPAY GYM MEMBERSHIP` is left out of the totals as a payment, and `INVOICE FROM LANDLORD` (money in) is counted as Income. Confidence is a fixed number per rule, not a measure of how well the whole description is understood. See AI_USAGE.md.
 - **Duplicate check is exact.** Same date, merchant and amount only.
 - **Single currency, no tax logic.** Amounts are treated as one currency and no deductibility rules are applied beyond asking about meals.
 
