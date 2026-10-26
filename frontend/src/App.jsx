@@ -1,33 +1,43 @@
 import { useEffect, useState } from 'react'
-import { analyzeStatement, fetchCategories, saveRule } from './api'
+import { analyzeStatement, deleteRule, fetchCategories, fetchRules, saveRule } from './api'
 import UploadPanel from './components/UploadPanel'
+import SavedRules from './components/SavedRules'
 import SummaryCards from './components/SummaryCards'
 import TransactionTable from './components/TransactionTable'
 import './App.css'
 
 export default function App() {
   const [categories, setCategories] = useState([])
+  const [rules, setRules] = useState({}) // saved merchant rules: { MERCHANT: category }
   const [source, setSource] = useState(null) // the file and options of the last analysis
   const [keepRows, setKeepRows] = useState([])
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  const loadRules = () => fetchRules().then(setRules)
+
   useEffect(() => {
     fetchCategories()
       .then(setCategories)
       .catch((e) => setError(e.message))
+    loadRules().catch((e) => setError(e.message))
   }, [])
 
+  // beforeAnalyze is a change to the saved rules. With no file loaded yet there is nothing to
+  // analyze, so only the rules change.
   async function run(nextSource, nextKeep, beforeAnalyze) {
     setLoading(true)
     setError('')
     try {
       if (beforeAnalyze) await beforeAnalyze()
-      setResult(await analyzeStatement(nextSource.file, { ...nextSource.options, keepRows: nextKeep }))
+      if (nextSource) {
+        setResult(await analyzeStatement(nextSource.file, { ...nextSource.options, keepRows: nextKeep }))
+      }
     } catch (e) {
       setError(e.message)
     } finally {
+      loadRules().catch(() => {}) // keep the list in step with the server
       setLoading(false)
     }
   }
@@ -51,6 +61,11 @@ export default function App() {
     run(source, next)
   }
 
+  // Taking a rule back: delete it, then analyze the same file again without it.
+  function handleRemoveRule(merchant) {
+    run(source, keepRows, () => deleteRule(merchant))
+  }
+
   return (
     <main className="app">
       <header>
@@ -62,6 +77,8 @@ export default function App() {
       </header>
 
       <UploadPanel onAnalyze={handleAnalyze} loading={loading} />
+
+      <SavedRules rules={rules} busy={loading} onRemove={handleRemoveRule} />
 
       {error && (
         <div className="callout error" role="alert">
@@ -93,7 +110,7 @@ export default function App() {
           />
           <p className="muted note">
             A category you choose is saved as a rule: the same merchant is sorted that way in every
-            future statement.
+            future statement. You can remove saved rules in the list under the upload form.
           </p>
         </>
       ) : (

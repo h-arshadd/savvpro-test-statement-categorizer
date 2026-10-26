@@ -12,6 +12,7 @@ The part that decides categories is plain Python rules in `backend/app/`. No AI 
 - See every row with its category and whether it was categorized, excluded or needs review (filterable).
 - See totals per category, income, and how many rows are excluded or waiting for review.
 - Fix rows in **Needs Review**: accept the suggestion or pick a category. Your choice is saved as a rule for that merchant, so it applies to future uploads too.
+- See your saved rules in the **Saved rules** list under the upload form and remove any of them.
 - Confirm that a flagged possible duplicate is a real charge.
 - Download the result as a CSV (all rows, with status, category, suggestion and the reason for each decision).
 - Choose how to read the file if it guesses wrong: sign convention (which amounts are expenses) and day-first dates.
@@ -19,7 +20,7 @@ The part that decides categories is plain Python rules in `backend/app/`. No AI 
 ## Requirements
 
 - Python 3.10 or newer
-- Node.js 20 or newer
+- Node.js (developed and tested with Node 24)
 
 ## Run it
 
@@ -91,6 +92,7 @@ Uploaded statements are processed in memory and are never saved. Only your saved
 | `POST /api/statements` | Upload a statement (multipart field `file`). Optional query: `sign` (`auto`, `negative_is_expense`, `positive_is_expense`), `day_first` (true/false), `keep_rows` (repeatable row number to confirm as a real charge). Returns the categorized rows, a summary and any warnings. |
 | `GET /api/rules` | Saved merchant rules. |
 | `POST /api/rules` | Save a rule: `{ "description": "JOES CAFE 9921", "category": "Meals" }`. |
+| `DELETE /api/rules/{merchant}` | Remove a saved rule (the merchant name as returned by `GET /api/rules`, URL-encoded). 404 if there is no such rule. |
 
 Money values in responses are strings (for example `"-59.99"`) to avoid floating point errors. Negative means money out, positive means money in.
 

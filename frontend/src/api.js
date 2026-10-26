@@ -39,3 +39,11 @@ export function saveRule(description, category) {
     body: JSON.stringify({ description, category }),
   })
 }
+
+export function fetchRules() {
+  return request('/api/rules')
+}
+
+export function deleteRule(merchant) {
+  return request(`/api/rules/${encodeURIComponent(merchant)}`, { method: 'DELETE' })
+}

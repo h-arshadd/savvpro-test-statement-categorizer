@@ -4,6 +4,8 @@
 
 **A freelancer or small business owner reading their business credit card statement at tax time.**
 
+I used the freelancer example from the task as my starting point and widened it to a small business owner reading a business credit card CSV.
+
 They download a CSV from their card provider and need every charge sorted into a category they can use on a tax return, plus a total per category. The expensive mistake here is a confident wrong answer: a personal dinner filed as a business expense, or a refund counted as income. So the app is built around one rule: **if it is not sure, it says so and asks.**
 
 Categories: Software & Subscriptions, Travel, Meals, Office Supplies, Advertising, Phone & Internet, Interest & Bank Fees. Two more are not spending: **Income** and **Transfers & Card Payments** (left out of the totals).
@@ -50,6 +52,10 @@ Bank descriptions are noisy: `SQ *BLUE BOTTLE COFFEE`, `AMAZON MKTP US*2K4X91`, 
 
 Specific rules are confident: `ADOBE`, `GITHUB`, `DELTA AIR`, `STAPLES`, `INTEREST CHARGE` and similar are 0.95; phone and internet providers are 0.85; income phrases are 0.9; known transfers like `TRANSFER TO SAVINGS` and `PAYMENT THANK YOU` are 0.95.
 
+## What the brain does not know
+
+The brain only recognizes merchants it has rules for, and the list is small on purpose. Everything else goes to Needs Review, which is intended behaviour and not a gap. A statement shows the store, not what was bought: `BEST BUY 00231` could be a fridge for the home or a monitor for the business, and no code can tell from the statement alone. So the app asks, and remembers the answer.
+
 ## Messy statement cases and what happens
 
 | Case | What the app does |
@@ -74,6 +80,10 @@ Negative means money out, positive means money in, everywhere. Category totals a
 
 When the user fixes a row, the app saves "this cleaned merchant name always means this category" in a small JSON file (`RulesStore`, written atomically so a crash cannot leave a half-written file). On the next upload, step 1 above applies it. A saved rule can also mark a merchant as "Transfers & Card Payments".
 
+A saved rule is a strong decision: it is applied at confidence 1.0 to every row from that merchant, including rows the user has not looked at, and it matches on the merchant name only, not on whether money went out or in. That is useful for a merchant like Joe's Cafe and risky for one like Amazon, which the built-in rules deliberately always ask about. So the user can always take a decision back: the **Saved rules** list under the upload form shows every saved rule with a Remove button (`GET /api/rules`, `DELETE /api/rules/{merchant}`). Removing a rule re-runs the same file, and the rows go back to the built-in rules, which for those merchants usually means Needs Review again.
+
+This came out of a review of my own design: the first version could save a rule but never show it or undo it, so one click on Amazon made every future Amazon row automatic with no way back.
+
 ## Is `rapidfuzz` an AI model?
 
 No. It computes a text similarity score between two strings (an edit-distance style calculation). It is a deterministic function with no model or training. It is only used to suggest, never to decide.
@@ -90,6 +100,7 @@ AI-written tests can still be too agreeable, so passing tests are not treated as
 - **Small rule list.** It covers common freelancer merchants. Anything else goes to Needs Review, which is the intended behaviour, and the user's fixes are remembered. New rules are added in `backend/app/rules.py`.
 - **Sign auto-detect is a guess.** On an account where deposits outnumber purchases, `auto` can guess wrong. The app warns when it flips signs, and the user can override it.
 - **One shared rules file.** There are no user accounts, so all saved rules are shared. Fine for a single user, not for a multi-user service.
+- **A saved rule covers a merchant, not a transaction.** It ignores the amount and its direction, so a merchant saved as Income would also pull a later charge from the same merchant into income. It is visible and removable, but it is not smarter than that.
 - **Duplicate check is exact.** Same date, merchant and amount only.
 - **Single currency, no tax logic.** Amounts are treated as one currency and no deductibility rules are applied beyond asking about meals.
 
