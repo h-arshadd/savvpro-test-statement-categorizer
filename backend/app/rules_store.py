@@ -22,6 +22,16 @@ class RulesStore:
             rules[merchant] = category
             self._write(rules)
 
+    def delete(self, merchant: str) -> bool:
+        """Remove a saved rule. Returns False if there was no rule for that merchant."""
+        with _LOCK:
+            rules = self._read()
+            if merchant not in rules:
+                return False
+            del rules[merchant]
+            self._write(rules)
+            return True
+
     def _read(self) -> dict[str, str]:
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))

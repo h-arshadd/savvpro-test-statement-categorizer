@@ -17,7 +17,7 @@ app = FastAPI(title="Statement Categorizer", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -83,3 +83,11 @@ def save_rule(body: RuleRequest, store: Store) -> RuleResponse:
         raise HTTPException(status_code=422, detail="That description has no merchant name in it.")
     store.set(merchant, body.category)
     return RuleResponse(merchant=merchant, category=body.category)
+
+
+@app.delete("/api/rules/{merchant}")
+def delete_rule(merchant: str, store: Store) -> dict[str, str]:
+    """Forget a saved rule, so rows from that merchant are decided by the built-in rules again."""
+    if not store.delete(merchant):
+        raise HTTPException(status_code=404, detail="There is no saved rule for that merchant.")
+    return {"deleted": merchant}
