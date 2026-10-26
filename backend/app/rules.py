@@ -53,7 +53,7 @@ RULES: tuple[Rule, ...] = (
     Rule(NOT_SPENDING, (
         "TRANSFER TO SAVINGS", "TRANSFER FROM SAVINGS", "TRANSFER TO CHECKING",
         "TRANSFER FROM CHECKING", "INTERNAL TRANSFER", "PAYMENT THANK YOU", "AUTOPAY",
-        "AUTOMATIC PAYMENT", "CARD PAYMENT",
+        "AUTOMATIC PAYMENT",
     ), 0.95),
     Rule(NOT_SPENDING, ("TRANSFER TO", "TRANSFER FROM"), 0.6,
          "A transfer to or from someone could be a contractor payment, a client payment "
